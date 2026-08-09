@@ -1,4 +1,4 @@
-const CACHE_NAME = 'foto-historia-v4';
+const CACHE_NAME = 'foto-historia-v5';
 const SHARE_CACHE = 'foto-historia-shared';
 const ASSETS = [
   './',
@@ -13,7 +13,12 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
   );
-  self.skipWaiting();
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('activate', (event) => {
@@ -34,6 +39,27 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  const isHTML = event.request.mode === 'navigate' ||
+    url.pathname.endsWith('.html') ||
+    url.pathname === '/' ||
+    url.pathname.endsWith('/');
+
+  if (isHTML) {
+    // Network-first: intenta traer la versión más nueva de internet;
+    // si no hay conexión, cae al caché como respaldo.
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // Assets estáticos (íconos, manifest): cache-first, más rápido y no cambian tan seguido
   event.respondWith(
     caches.match(event.request).then((cached) => cached || fetch(event.request))
   );
@@ -46,7 +72,6 @@ async function handleShare(request) {
 
     if (file) {
       const cache = await caches.open(SHARE_CACHE);
-      // Guardamos el archivo compartido bajo una key fija para que index.html lo recupere
       const response = new Response(file, {
         headers: { 'Content-Type': file.type || 'image/jpeg' }
       });
