@@ -1,4 +1,4 @@
-const CACHE_NAME = 'foto-historia-v2';
+const CACHE_NAME = 'foto-historia-v3';
 const SHARE_CACHE = 'foto-historia-shared';
 const ASSETS = [
   './',

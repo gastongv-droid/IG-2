@@ -53,12 +53,7 @@
     align-items:center;
     justify-content:center;
     flex-shrink:0;
-  }
-  .stage img{
-    max-width:100%;
-    max-height:100%;
-    object-fit:contain;
-    display:block;
+    touch-action:none;
   }
   .stage .empty{
     color:var(--muted);
@@ -66,8 +61,25 @@
     text-align:center;
     padding:0 40px;
     line-height:1.5;
+    pointer-events:none;
   }
   .stage .empty svg{ display:block; margin:0 auto 12px; opacity:0.35; }
+
+  #viewCanvas{
+    width:100%;
+    height:100%;
+    display:block;
+  }
+
+  .hint{
+    position:absolute;
+    bottom:10px; left:0; right:0;
+    text-align:center;
+    font-size:11px;
+    color:rgba(255,255,255,0.55);
+    pointer-events:none;
+    transition:opacity 0.3s ease;
+  }
 
   .actions{
     display:flex;
@@ -103,7 +115,11 @@
     color:var(--text);
     border:1px solid var(--line);
   }
-  .btn-secondary:disabled{
+  .btn-ig{
+    background:linear-gradient(45deg,#feda75,#fa7e1e,#d62976,#962fbf,#4f5bd5);
+    color:#fff;
+  }
+  .btn-secondary:disabled, .btn-ig:disabled{
     opacity:0.35;
     pointer-events:none;
   }
@@ -117,7 +133,7 @@
   }
   .status.ok{ color:#4ade80; }
 
-  canvas{ display:none; }
+  canvas#exportCanvas{ display:none; }
 
   footer{
     margin-top:auto;
@@ -144,14 +160,16 @@
       </svg>
       Elegí una foto para verla acá
     </div>
-    <img id="preview" style="display:none;">
+    <canvas id="viewCanvas" width="1080" height="1920" style="display:none;"></canvas>
+    <div class="hint" id="hint" style="display:none;">Arrastrá para mover · pellizcá para agrandar</div>
   </div>
 
-  <canvas id="canvas" width="1080" height="1920"></canvas>
+  <canvas id="exportCanvas" width="1080" height="1920"></canvas>
 
   <div class="actions">
     <input type="file" id="fileInput" accept="image/*">
     <label class="btn btn-primary" for="fileInput">Elegir foto</label>
+    <button class="btn-ig" id="shareBtn" disabled>Compartir a Instagram</button>
     <button class="btn-secondary" id="downloadBtn" disabled>Descargar imagen</button>
   </div>
 
@@ -162,61 +180,132 @@
 
 <script>
 const fileInput = document.getElementById('fileInput');
-const preview = document.getElementById('preview');
+const stage = document.getElementById('stage');
 const emptyState = document.getElementById('emptyState');
+const viewCanvas = document.getElementById('viewCanvas');
+const vctx = viewCanvas.getContext('2d');
+const hint = document.getElementById('hint');
 const downloadBtn = document.getElementById('downloadBtn');
+const shareBtn = document.getElementById('shareBtn');
 const statusEl = document.getElementById('status');
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
+const exportCanvas = document.getElementById('exportCanvas');
+const ectx = exportCanvas.getContext('2d');
 
 const W = 1080, H = 1920;
 let currentImg = null;
 let currentFileName = 'foto';
+
+let baseScale = 1;
+let scale = 1;
+let offsetX = 0;
+let offsetY = 0;
+
+const MIN_SCALE = 0.5;
+const MAX_SCALE = 4;
 
 function setStatus(msg, ok){
   statusEl.textContent = msg || '';
   statusEl.className = 'status' + (ok ? ' ok' : '');
 }
 
-function renderComposite(img){
+function drawTo(ctx, img){
   ctx.clearRect(0,0,W,H);
   ctx.fillStyle = '#000000';
   ctx.fillRect(0,0,W,H);
 
-  const scale = Math.min(W / img.width, H / img.height);
-  const drawW = img.width * scale;
-  const drawH = img.height * scale;
-  const dx = (W - drawW) / 2;
-  const dy = (H - drawH) / 2;
+  const s = baseScale * scale;
+  const drawW = img.width * s;
+  const drawH = img.height * s;
+  const dx = (W - drawW) / 2 + offsetX;
+  const dy = (H - drawH) / 2 + offsetY;
 
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(img, dx, dy, drawW, drawH);
 }
 
-fileInput.addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  loadImageFile(file);
+function render(){
+  if (!currentImg) return;
+  drawTo(vctx, currentImg);
+}
+
+function clampOffsets(){
+  const s = baseScale * scale;
+  const drawW = currentImg.width * s;
+  const drawH = currentImg.height * s;
+  const maxOffX = Math.max(drawW / 2, W / 2);
+  const maxOffY = Math.max(drawH / 2, H / 2);
+  offsetX = Math.max(-maxOffX, Math.min(maxOffX, offsetX));
+  offsetY = Math.max(-maxOffY, Math.min(maxOffY, offsetY));
+}
+
+function resetTransform(img){
+  baseScale = Math.min(W / img.width, H / img.height);
+  scale = 1;
+  offsetX = 0;
+  offsetY = 0;
+}
+
+let pointers = new Map();
+let gestureStart = null;
+
+function canvasCoordsFromEvent(e){
+  const rect = viewCanvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * (W / rect.width);
+  const y = (e.clientY - rect.top) * (H / rect.height);
+  return {x, y};
+}
+
+viewCanvas.addEventListener('pointerdown', (e) => {
+  if (!currentImg) return;
+  viewCanvas.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, canvasCoordsFromEvent(e));
+  hint.style.opacity = '0';
+
+  if (pointers.size === 1) {
+    const p = [...pointers.values()][0];
+    gestureStart = { type: 'drag', x: p.x, y: p.y, offsetX, offsetY };
+  } else if (pointers.size === 2) {
+    const [p1, p2] = [...pointers.values()];
+    const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    gestureStart = { type: 'pinch', dist, scale, offsetX, offsetY };
+  }
 });
 
-downloadBtn.addEventListener('click', () => {
-  if (!currentImg) return;
+viewCanvas.addEventListener('pointermove', (e) => {
+  if (!currentImg || !pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId, canvasCoordsFromEvent(e));
 
-  renderComposite(currentImg);
+  if (pointers.size === 1 && gestureStart && gestureStart.type === 'drag') {
+    const p = [...pointers.values()][0];
+    offsetX = gestureStart.offsetX + (p.x - gestureStart.x);
+    offsetY = gestureStart.offsetY + (p.y - gestureStart.y);
+    clampOffsets();
+    render();
+  } else if (pointers.size === 2 && gestureStart && gestureStart.type === 'pinch') {
+    const [p1, p2] = [...pointers.values()];
+    const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    const ratio = dist / (gestureStart.dist || 1);
+    scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, gestureStart.scale * ratio));
+    clampOffsets();
+    render();
+  }
+});
 
-  canvas.toBlob((blob) => {
-    if (!blob) { setStatus('Error al generar la imagen.'); return; }
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = currentFileName + '_historia.png';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 3000);
-    setStatus('Imagen descargada ✓', true);
-  }, 'image/png', 1.0);
+function endPointer(e){
+  pointers.delete(e.pointerId);
+  if (pointers.size === 1) {
+    const p = [...pointers.values()][0];
+    gestureStart = { type: 'drag', x: p.x, y: p.y, offsetX, offsetY };
+  } else if (pointers.size === 0) {
+    gestureStart = null;
+    hint.style.opacity = '1';
+  }
+}
+viewCanvas.addEventListener('pointerup', endPointer);
+viewCanvas.addEventListener('pointercancel', endPointer);
+viewCanvas.addEventListener('pointerleave', (e) => {
+  if (pointers.has(e.pointerId)) endPointer(e);
 });
 
 function loadImageFile(file) {
@@ -228,12 +317,16 @@ function loadImageFile(file) {
     const img = new Image();
     img.onload = () => {
       currentImg = img;
-      renderComposite(img);
-      preview.src = canvas.toDataURL('image/jpeg', 0.98);
-      preview.style.display = 'block';
+      resetTransform(img);
+      render();
+
+      viewCanvas.style.display = 'block';
       emptyState.style.display = 'none';
+      hint.style.display = 'block';
+
       downloadBtn.disabled = false;
-      setStatus('Listo. Formato historia 1080×1920.', true);
+      shareBtn.disabled = false;
+      setStatus('Listo. Arrastrá o pellizcá para ajustar.', true);
     };
     img.onerror = () => setStatus('No se pudo leer esa imagen. Probá con otra.');
     img.src = ev.target.result;
@@ -241,6 +334,73 @@ function loadImageFile(file) {
   reader.onerror = () => setStatus('No se pudo leer el archivo.');
   reader.readAsDataURL(file);
 }
+
+fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  loadImageFile(file);
+});
+
+function exportBlob(callback){
+  if (!currentImg) return;
+  drawTo(ectx, currentImg);
+  exportCanvas.toBlob((blob) => {
+    callback(blob);
+  }, 'image/png', 1.0);
+}
+
+downloadBtn.addEventListener('click', () => {
+  if (!currentImg) return;
+  exportBlob((blob) => {
+    if (!blob) { setStatus('Error al generar la imagen.'); return; }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = currentFileName + '_historia.png';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+    setStatus('Imagen descargada ✓', true);
+  });
+});
+
+shareBtn.addEventListener('click', () => {
+  if (!currentImg) return;
+  setStatus('Generando…');
+
+  exportBlob(async (blob) => {
+    if (!blob) { setStatus('Error al generar la imagen.'); return; }
+
+    const file = new File([blob], currentFileName + '_historia.png', { type: 'image/png' });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: 'Foto Historia'
+        });
+        setStatus('Compartido ✓', true);
+        return;
+      } catch (err) {
+        if (err && err.name === 'AbortError') {
+          setStatus('Cancelado.');
+          return;
+        }
+      }
+    }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = currentFileName + '_historia.png';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+    setStatus('No se pudo compartir directo. Imagen descargada — subila desde tu galería.');
+  });
+});
 
 async function checkForSharedPhoto() {
   const params = new URLSearchParams(window.location.search);
@@ -255,7 +415,6 @@ async function checkForSharedPhoto() {
       loadImageFile(file);
       await cache.delete('/shared-photo');
     }
-    // Limpiamos la URL para que un refresh no repita la carga
     window.history.replaceState({}, '', window.location.pathname);
   } catch (e) {
     setStatus('No se pudo cargar la foto compartida.');
