@@ -96,6 +96,19 @@
   }
   .change-btn:active{ transform:scale(0.96); }
 
+  .guide-line{
+    position:absolute;
+    top:0; bottom:0; left:50%;
+    width:1.5px;
+    background:#4fd1ff;
+    box-shadow:0 0 6px rgba(79,209,255,0.7);
+    opacity:0;
+    pointer-events:none;
+    transition:opacity 0.1s ease;
+    z-index:3;
+  }
+  .guide-line.visible{ opacity:1; }
+
   .hint{
     position:absolute;
     bottom:10px; left:0; right:0;
@@ -198,6 +211,7 @@
       Cambiar foto
     </label>
     <div class="hint" id="hint" style="display:none;">Arrastrá para mover · pellizcá para agrandar · doble toque centra</div>
+    <div class="guide-line" id="guideLine"></div>
   </div>
 
   <canvas id="exportCanvas" width="1080" height="1920"></canvas>
@@ -222,6 +236,7 @@ const viewCanvas = document.getElementById('viewCanvas');
 const vctx = viewCanvas.getContext('2d');
 const hint = document.getElementById('hint');
 const changeBtn = document.getElementById('changeBtn');
+const guideLine = document.getElementById('guideLine');
 const downloadBtn = document.getElementById('downloadBtn');
 const shareBtn = document.getElementById('shareBtn');
 const statusEl = document.getElementById('status');
@@ -239,15 +254,27 @@ let offsetY = 0;
 
 const MIN_SCALE = 0.5;
 const MAX_SCALE = 4;
-const SNAP_THRESHOLD = 28; // px de canvas: radio donde empieza a "sentirse" el imán
-const SNAP_STRENGTH = 0.65; // 0 = sin resistencia, 1 = pegado del todo
+const SNAP_THRESHOLD = 90; // px de canvas: radio donde empieza a "sentirse" el imán
+const SNAP_STRENGTH = 0.85; // 0 = sin resistencia, 1 = pegado del todo
+let wasSnapped = false;
 
 function applyMagneticSnapX(rawOffsetX){
   const dist = Math.abs(rawOffsetX);
-  if (dist >= SNAP_THRESHOLD) return rawOffsetX;
-  // Cuanto más cerca del centro, más se resiste a alejarse: función suave (ease)
+  const isSnapped = dist < SNAP_THRESHOLD;
+
+  if (isSnapped && !wasSnapped) {
+    // Recién entra a la zona magnética: vibración corta si el dispositivo lo soporta
+    if (navigator.vibrate) navigator.vibrate(8);
+    guideLine.classList.add('visible');
+  } else if (!isSnapped && wasSnapped) {
+    guideLine.classList.remove('visible');
+  }
+  wasSnapped = isSnapped;
+
+  if (!isSnapped) return rawOffsetX;
+
   const t = dist / SNAP_THRESHOLD; // 0 en el centro, 1 en el borde de la zona
-  const eased = t * t; // acelera la resistencia cerca del centro
+  const eased = Math.pow(t, 1.6); // resistencia fuerte cerca del centro, se afloja hacia el borde
   const pulledDist = dist * (eased + (1 - eased) * (1 - SNAP_STRENGTH));
   return rawOffsetX >= 0 ? pulledDist : -pulledDist;
 }
@@ -293,6 +320,8 @@ function resetTransform(img){
   scale = 1;
   offsetX = 0;
   offsetY = 0;
+  wasSnapped = false;
+  guideLine.classList.remove('visible');
 }
 
 let pointers = new Map();
@@ -382,6 +411,8 @@ function endPointer(e){
   } else if (pointers.size === 0) {
     gestureStart = null;
     hint.style.opacity = '1';
+    guideLine.classList.remove('visible');
+    wasSnapped = false;
   }
 }
 viewCanvas.addEventListener('pointerup', endPointer);
