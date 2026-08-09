@@ -53,7 +53,6 @@
     align-items:center;
     justify-content:center;
     flex-shrink:0;
-    touch-action:none;
   }
   .stage .empty{
     color:var(--muted);
@@ -70,6 +69,28 @@
     height:100%;
     display:block;
   }
+  #viewCanvas.active{
+    touch-action:none;
+  }
+
+  .change-btn{
+    position:absolute;
+    top:10px; right:10px;
+    background:rgba(20,20,20,0.75);
+    backdrop-filter:blur(6px);
+    color:var(--text);
+    border:1px solid rgba(255,255,255,0.15);
+    border-radius:20px;
+    padding:8px 14px;
+    font-size:12.5px;
+    font-weight:600;
+    display:none;
+    align-items:center;
+    gap:6px;
+    cursor:pointer;
+    z-index:2;
+  }
+  .change-btn:active{ transform:scale(0.96); }
 
   .hint{
     position:absolute;
@@ -161,6 +182,14 @@
       Elegí una foto para verla acá
     </div>
     <canvas id="viewCanvas" width="1080" height="1920" style="display:none;"></canvas>
+    <label class="change-btn" id="changeBtn" for="fileInput">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="3" y="3" width="18" height="18" rx="2"/>
+        <circle cx="8.5" cy="8.5" r="1.5"/>
+        <path d="M21 15l-5-5L5 21"/>
+      </svg>
+      Cambiar foto
+    </label>
     <div class="hint" id="hint" style="display:none;">Arrastrá para mover · pellizcá para agrandar</div>
   </div>
 
@@ -185,6 +214,7 @@ const emptyState = document.getElementById('emptyState');
 const viewCanvas = document.getElementById('viewCanvas');
 const vctx = viewCanvas.getContext('2d');
 const hint = document.getElementById('hint');
+const changeBtn = document.getElementById('changeBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const shareBtn = document.getElementById('shareBtn');
 const statusEl = document.getElementById('status');
@@ -321,8 +351,10 @@ function loadImageFile(file) {
       render();
 
       viewCanvas.style.display = 'block';
+      viewCanvas.classList.add('active');
       emptyState.style.display = 'none';
       hint.style.display = 'block';
+      changeBtn.style.display = 'flex';
 
       downloadBtn.disabled = false;
       shareBtn.disabled = false;
