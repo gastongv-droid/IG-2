@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Recibiendo foto…</title>
+<style>
+  body{
+    margin:0; background:#0a0a0a; color:#f2f2f2;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    display:flex; align-items:center; justify-content:center;
+    min-height:100vh; text-align:center; padding:20px;
+  }
+</style>
+</head>
+<body>
+<div id="msg">Cargando foto…</div>
+<script>
+// Este endpoint recibe el POST con la foto compartida (multipart/form-data),
+// la guarda temporalmente en el Cache Storage, y redirige a index.html
+// que la va a leer desde ahí.
+(async () => {
+  try {
+    // El request original con el archivo llega vía Service Worker (evento fetch),
+    // que lo intercepta y lo deja disponible acá vía IndexedDB/Cache.
+    // Esperamos a que el SW nos avise que ya está guardado.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('shared') === '1') {
+      window.location.href = 'index.html?fromShare=1';
+    } else {
+      document.getElementById('msg').textContent = 'No se recibió ninguna foto.';
+      setTimeout(() => window.location.href = 'index.html', 1500);
+    }
+  } catch (e) {
+    document.getElementById('msg').textContent = 'Error al recibir la foto.';
+    setTimeout(() => window.location.href = 'index.html', 1500);
+  }
+})();
+</script>
+</body>
+</html>

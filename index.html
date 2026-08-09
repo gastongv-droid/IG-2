@@ -197,29 +197,7 @@ function renderComposite(img){
 fileInput.addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
-
-  setStatus('Procesando…');
-  currentFileName = file.name.replace(/\.[^/.]+$/, '') || 'foto';
-
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    const img = new Image();
-    img.onload = () => {
-      currentImg = img;
-      renderComposite(img);
-
-      preview.src = canvas.toDataURL('image/jpeg', 0.98);
-      preview.style.display = 'block';
-      emptyState.style.display = 'none';
-
-      downloadBtn.disabled = false;
-      setStatus('Listo. Formato historia 1080×1920.', true);
-    };
-    img.onerror = () => setStatus('No se pudo leer esa imagen. Probá con otra.');
-    img.src = ev.target.result;
-  };
-  reader.onerror = () => setStatus('No se pudo leer el archivo.');
-  reader.readAsDataURL(file);
+  loadImageFile(file);
 });
 
 downloadBtn.addEventListener('click', () => {
@@ -241,12 +219,56 @@ downloadBtn.addEventListener('click', () => {
   }, 'image/png', 1.0);
 });
 
+function loadImageFile(file) {
+  setStatus('Procesando…');
+  currentFileName = (file.name || 'foto').replace(/\.[^/.]+$/, '') || 'foto';
+
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const img = new Image();
+    img.onload = () => {
+      currentImg = img;
+      renderComposite(img);
+      preview.src = canvas.toDataURL('image/jpeg', 0.98);
+      preview.style.display = 'block';
+      emptyState.style.display = 'none';
+      downloadBtn.disabled = false;
+      setStatus('Listo. Formato historia 1080×1920.', true);
+    };
+    img.onerror = () => setStatus('No se pudo leer esa imagen. Probá con otra.');
+    img.src = ev.target.result;
+  };
+  reader.onerror = () => setStatus('No se pudo leer el archivo.');
+  reader.readAsDataURL(file);
+}
+
+async function checkForSharedPhoto() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('fromShare') !== '1') return;
+
+  try {
+    const cache = await caches.open('foto-historia-shared');
+    const response = await cache.match('/shared-photo');
+    if (response) {
+      const blob = await response.blob();
+      const file = new File([blob], 'foto-compartida.jpg', { type: blob.type || 'image/jpeg' });
+      loadImageFile(file);
+      await cache.delete('/shared-photo');
+    }
+    // Limpiamos la URL para que un refresh no repita la carga
+    window.history.replaceState({}, '', window.location.pathname);
+  } catch (e) {
+    setStatus('No se pudo cargar la foto compartida.');
+  }
+}
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js').then(() => {
+      checkForSharedPhoto();
+    }).catch(() => {});
   });
 }
 </script>
 </body>
 </html>
-
