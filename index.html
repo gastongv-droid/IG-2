@@ -190,7 +190,7 @@
       </svg>
       Cambiar foto
     </label>
-    <div class="hint" id="hint" style="display:none;">Arrastrá para mover · pellizcá para agrandar</div>
+    <div class="hint" id="hint" style="display:none;">Arrastrá para mover · pellizcá para agrandar · doble toque centra</div>
   </div>
 
   <canvas id="exportCanvas" width="1080" height="1920"></canvas>
@@ -278,6 +278,8 @@ function resetTransform(img){
 
 let pointers = new Map();
 let gestureStart = null;
+let lastTapTime = 0;
+let lastTapPos = null;
 
 function canvasCoordsFromEvent(e){
   const rect = viewCanvas.getBoundingClientRect();
@@ -286,13 +288,43 @@ function canvasCoordsFromEvent(e){
   return {x, y};
 }
 
+function animateOffsetYTo(target){
+  const start = offsetY;
+  const duration = 220;
+  const t0 = performance.now();
+  function step(now){
+    const t = Math.min(1, (now - t0) / duration);
+    const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+    offsetY = start + (target - start) * eased;
+    render();
+    if (t < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
 viewCanvas.addEventListener('pointerdown', (e) => {
   if (!currentImg) return;
   viewCanvas.setPointerCapture(e.pointerId);
-  pointers.set(e.pointerId, canvasCoordsFromEvent(e));
+  const pos = canvasCoordsFromEvent(e);
+  pointers.set(e.pointerId, pos);
   hint.style.opacity = '0';
 
   if (pointers.size === 1) {
+    // Detección de doble tap: dos toques rápidos y cercanos entre sí
+    const now = Date.now();
+    const isDoubleTap = (now - lastTapTime) < 300 &&
+      lastTapPos && Math.hypot(pos.x - lastTapPos.x, pos.y - lastTapPos.y) < 60;
+
+    if (isDoubleTap) {
+      animateOffsetYTo(0); // centra solo el eje vertical, mantiene zoom y X
+      lastTapTime = 0;
+      lastTapPos = null;
+      gestureStart = null;
+      return;
+    }
+    lastTapTime = now;
+    lastTapPos = pos;
+
     const p = [...pointers.values()][0];
     gestureStart = { type: 'drag', x: p.x, y: p.y, offsetX, offsetY };
   } else if (pointers.size === 2) {
