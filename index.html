@@ -239,6 +239,18 @@ let offsetY = 0;
 
 const MIN_SCALE = 0.5;
 const MAX_SCALE = 4;
+const SNAP_THRESHOLD = 28; // px de canvas: radio donde empieza a "sentirse" el imán
+const SNAP_STRENGTH = 0.65; // 0 = sin resistencia, 1 = pegado del todo
+
+function applyMagneticSnapX(rawOffsetX){
+  const dist = Math.abs(rawOffsetX);
+  if (dist >= SNAP_THRESHOLD) return rawOffsetX;
+  // Cuanto más cerca del centro, más se resiste a alejarse: función suave (ease)
+  const t = dist / SNAP_THRESHOLD; // 0 en el centro, 1 en el borde de la zona
+  const eased = t * t; // acelera la resistencia cerca del centro
+  const pulledDist = dist * (eased + (1 - eased) * (1 - SNAP_STRENGTH));
+  return rawOffsetX >= 0 ? pulledDist : -pulledDist;
+}
 
 function setStatus(msg, ok){
   statusEl.textContent = msg || '';
@@ -347,7 +359,8 @@ viewCanvas.addEventListener('pointermove', (e) => {
 
   if (pointers.size === 1 && gestureStart && gestureStart.type === 'drag') {
     const p = [...pointers.values()][0];
-    offsetX = gestureStart.offsetX + (p.x - gestureStart.x);
+    const rawOffsetX = gestureStart.offsetX + (p.x - gestureStart.x);
+    offsetX = applyMagneticSnapX(rawOffsetX);
     offsetY = gestureStart.offsetY + (p.y - gestureStart.y);
     clampOffsets();
     render();
