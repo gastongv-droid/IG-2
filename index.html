@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Foto a Historia</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#0a0a0a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Foto Historia">
+<style>
+  :root{
+    --bg: #0a0a0a;
+    --panel: #141414;
+    --line: #262626;
+    --text: #f2f2f2;
+    --muted: #8a8a8a;
+    --accent: #ff5a3c;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
+  html,body{
+    margin:0; padding:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    min-height:100vh;
+    overscroll-behavior:none;
+  }
+  .wrap{
+    max-width:520px; margin:0 auto;
+    padding: env(safe-area-inset-top,20px) 16px calc(env(safe-area-inset-bottom,20px) + 16px);
+    min-height:100vh;
+    display:flex; flex-direction:column;
+  }
+  header{ padding: 14px 2px 18px; }
+  h1{
+    font-size:15px; font-weight:600; letter-spacing:0.02em;
+    margin:0; color:var(--text);
+    text-transform:uppercase;
+  }
+  .sub{ font-size:12.5px; color:var(--muted); margin-top:4px; }
+
+  .stage{
+    position:relative;
+    width:100%;
+    aspect-ratio: 9/16;
+    background:#000;
+    border:1px solid var(--line);
+    border-radius:14px;
+    overflow:hidden;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-shrink:0;
+  }
+  .stage img{
+    max-width:100%;
+    max-height:100%;
+    object-fit:contain;
+    display:block;
+  }
+  .stage .empty{
+    color:var(--muted);
+    font-size:13px;
+    text-align:center;
+    padding:0 40px;
+    line-height:1.5;
+  }
+  .stage .empty svg{ display:block; margin:0 auto 12px; opacity:0.35; }
+
+  .actions{
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    margin-top:16px;
+  }
+  input[type=file]{ display:none; }
+
+  button, label.btn{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    width:100%;
+    padding:15px 16px;
+    border-radius:12px;
+    border:none;
+    font-size:15px;
+    font-weight:600;
+    cursor:pointer;
+    transition: transform 0.06s ease, opacity 0.15s ease;
+    -webkit-user-select:none; user-select:none;
+  }
+  button:active, label.btn:active{ transform: scale(0.98); }
+
+  .btn-primary{
+    background:var(--accent);
+    color:#111;
+  }
+  .btn-secondary{
+    background:var(--panel);
+    color:var(--text);
+    border:1px solid var(--line);
+  }
+  .btn-secondary:disabled{
+    opacity:0.35;
+    pointer-events:none;
+  }
+
+  .status{
+    font-size:12px;
+    color:var(--muted);
+    text-align:center;
+    margin-top:12px;
+    min-height:16px;
+  }
+  .status.ok{ color:#4ade80; }
+
+  canvas{ display:none; }
+
+  footer{
+    margin-top:auto;
+    padding-top:24px;
+    text-align:center;
+    font-size:11px;
+    color:#4a4a4a;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Foto → Historia</h1>
+    <div class="sub">Fondo negro · 1080×1920 · sin pérdida de calidad</div>
+  </header>
+
+  <div class="stage" id="stage">
+    <div class="empty" id="emptyState">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="3" y="3" width="18" height="18" rx="2"/>
+        <circle cx="8.5" cy="8.5" r="1.5"/>
+        <path d="M21 15l-5-5L5 21"/>
+      </svg>
+      Elegí una foto para verla acá
+    </div>
+    <img id="preview" style="display:none;">
+  </div>
+
+  <canvas id="canvas" width="1080" height="1920"></canvas>
+
+  <div class="actions">
+    <input type="file" id="fileInput" accept="image/*">
+    <label class="btn btn-primary" for="fileInput">Elegir foto</label>
+    <button class="btn-secondary" id="downloadBtn" disabled>Descargar imagen</button>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <footer>Se procesa en tu teléfono. Nada se sube a internet.</footer>
+</div>
+
+<script>
+const fileInput = document.getElementById('fileInput');
+const preview = document.getElementById('preview');
+const emptyState = document.getElementById('emptyState');
+const downloadBtn = document.getElementById('downloadBtn');
+const statusEl = document.getElementById('status');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+const W = 1080, H = 1920;
+let currentImg = null;
+let currentFileName = 'foto';
+
+function setStatus(msg, ok){
+  statusEl.textContent = msg || '';
+  statusEl.className = 'status' + (ok ? ' ok' : '');
+}
+
+function renderComposite(img){
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0,0,W,H);
+
+  const scale = Math.min(W / img.width, H / img.height);
+  const drawW = img.width * scale;
+  const drawH = img.height * scale;
+  const dx = (W - drawW) / 2;
+  const dy = (H - drawH) / 2;
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, dx, dy, drawW, drawH);
+}
+
+fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  setStatus('Procesando…');
+  currentFileName = file.name.replace(/\.[^/.]+$/, '') || 'foto';
+
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const img = new Image();
+    img.onload = () => {
+      currentImg = img;
+      renderComposite(img);
+
+      preview.src = canvas.toDataURL('image/jpeg', 0.98);
+      preview.style.display = 'block';
+      emptyState.style.display = 'none';
+
+      downloadBtn.disabled = false;
+      setStatus('Listo. Formato historia 1080×1920.', true);
+    };
+    img.onerror = () => setStatus('No se pudo leer esa imagen. Probá con otra.');
+    img.src = ev.target.result;
+  };
+  reader.onerror = () => setStatus('No se pudo leer el archivo.');
+  reader.readAsDataURL(file);
+});
+
+downloadBtn.addEventListener('click', () => {
+  if (!currentImg) return;
+
+  renderComposite(currentImg);
+
+  canvas.toBlob((blob) => {
+    if (!blob) { setStatus('Error al generar la imagen.'); return; }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = currentFileName + '_historia.png';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+    setStatus('Imagen descargada ✓', true);
+  }, 'image/png', 1.0);
+});
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
