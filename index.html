@@ -487,9 +487,32 @@ async function checkForSharedPhoto() {
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').then(() => {
+    navigator.serviceWorker.register('sw.js').then((reg) => {
       checkForSharedPhoto();
+
+      // Si ya había un service worker activo antes de este registro,
+      // y ahora se instala uno nuevo, significa que hay una actualización.
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        if (!newWorker) return;
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            // Hay una versión nueva lista: la activamos y recargamos solos
+            newWorker.postMessage({ type: 'SKIP_WAITING' });
+          }
+        });
+      });
+
+      // Revisa si hay una actualización disponible cada vez que se abre la app
+      reg.update();
     }).catch(() => {});
+
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    });
   });
 }
 </script>
